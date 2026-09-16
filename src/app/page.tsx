@@ -1,69 +1,140 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
+
+type Ticket = {
+  id: string;
+  workspace_id: string;
+  customer_name: string;
+  customer_email: string;
+  message: string;
+  status: string;
+  created_at: string;
+  ai_summary: string | null;
+  suggested_reply: string | null;
+};
+
+type GeneratedReply = {
+  summary: string;
+  reply: string;
+};
 
 export default function Home() {
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
+  const [generated, setGenerated] = useState<Record<string, GeneratedReply>>({});
+
+  useEffect(() => {
+    async function loadTickets() {
+      const { data } = await supabase
+        .from("support_tickets")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      setTickets(data ?? []);
+      setLoading(false);
+    }
+
+    loadTickets();
+  }, []);
+
+  async function generateReply(ticket: Ticket) {
+    setGeneratingId(ticket.id);
+
+    const response = await fetch("/api/generate-reply", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        message: ticket.message,
+      }),
+    });
+
+    const data = await response.json();
+
+    await supabase
+      .from("support_tickets")
+      .update({
+        ai_summary: data.summary,
+        suggested_reply: data.reply,
+      })
+      .eq("id", ticket.id);
+
+    setGenerated((current) => ({
+      ...current,
+      [ticket.id]: data,
+    }));
+
+    setGeneratingId(null);
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <main className="min-h-screen bg-zinc-950 px-6 py-10 text-white">
+      <div className="mx-auto max-w-5xl">
+        <div className="mb-8">
+          <p className="text-sm text-zinc-500">SupportPilot AI</p>
+          <h1 className="mt-2 text-3xl font-bold">Support Tickets</h1>
+          <p className="mt-2 text-zinc-400">
+            AI-assisted customer support dashboard
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+
+        {loading ? (
+          <p className="text-zinc-400">Loading tickets...</p>
+        ) : (
+          <div className="space-y-4">
+            {tickets.map((ticket) => (
+              <div
+                key={ticket.id}
+                className="rounded-xl border border-zinc-800 bg-zinc-900 p-5"
+              >
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h2 className="font-semibold">{ticket.customer_name}</h2>
+                    <p className="text-sm text-zinc-500">
+                      {ticket.customer_email}
+                    </p>
+                  </div>
+
+                  <span className="rounded-full bg-zinc-800 px-3 py-1 text-xs">
+                    {ticket.status}
+                  </span>
+                </div>
+
+                <p className="mt-5 text-zinc-300">{ticket.message}</p>
+
+                <button
+                  onClick={() => generateReply(ticket)}
+                  disabled={generatingId === ticket.id}
+                  className="mt-5 rounded-lg bg-white px-4 py-2 text-sm font-medium text-black disabled:opacity-50"
+                >
+                  {generatingId === ticket.id
+                    ? "Generating..."
+                    : "Generate AI Reply"}
+                </button>
+
+                {generated[ticket.id] && (
+                  <div className="mt-5 rounded-lg bg-zinc-950 p-4">
+                    <p className="text-xs font-semibold uppercase text-zinc-500">
+                      AI Suggested Reply
+                    </p>
+                    <p className="mt-2 text-sm text-zinc-300">
+                      {generated[ticket.id].reply}
+                    </p>
+                  </div>
+                )}
+
+                <div className="mt-5 border-t border-zinc-800 pt-4 text-xs text-zinc-600">
+                  Workspace: {ticket.workspace_id}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </main>
   );
 }
